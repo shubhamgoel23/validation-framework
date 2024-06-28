@@ -9,6 +9,19 @@ import org.springframework.stereotype.Service;
 public class UserService {
 
 
+    private static void validateAddress(ValidationFramework.Validator<Address, User> addressValidator) {
+        addressValidator
+                .notNull()
+                .nested(Address::getStreet, street -> street
+                        .notNull()
+                        .satisfies(s -> s.length() >= 5, "Street must be at least 5 characters"))
+                .when((a, u) -> u.getAge() > 20)
+                .nested(Address::getCity, city -> city
+                        .notNull()
+                        .satisfies(c -> c.length() >= 2, "City must be at least 2 characters"))
+                .when((a, u) -> u.getAge() <= 20);
+    }
+
     public User save(User user) {
         ValidationFramework.ValidationBuilder<User> builder = new ValidationFramework.ValidationBuilder<>(user);
 
@@ -27,7 +40,8 @@ public class UserService {
         builder.ruleFor(User::getAddresses)
                 .notNull()
                 .forEach(Address.class, UserService::validateAddress)
-                .when(u -> u.getAge() <= 20);;
+                .when((a, u) -> u.getAge() <= 20);
+        ;
 
         builder.ruleFor(User::getMainAddress)
                 .notNull()
@@ -35,16 +49,5 @@ public class UserService {
 
         ValidationFramework.ValidationResult result = builder.validate();
         return user;
-    }
-
-    private static void validateAddress(ValidationFramework.Validator<Address, User> addressValidator) {
-        addressValidator
-                .notNull()
-                .nested(Address::getStreet, street -> street
-                        .notNull()
-                        .satisfies(s -> s.length() >= 5, "Street must be at least 5 characters"))
-                .nested(Address::getCity, city -> city
-                        .notNull()
-                        .satisfies(c -> c.length() >= 2, "City must be at least 2 characters"));
     }
 }
