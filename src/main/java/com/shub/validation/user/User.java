@@ -10,5 +10,6 @@ public class User {
     private String email;
     private Integer age;
     private List<Address> addresses;
+    private Address mainAddress;
 
 }

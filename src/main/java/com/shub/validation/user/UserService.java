@@ -26,12 +26,24 @@ public class UserService {
 
         builder.ruleFor(User::getAddresses)
                 .notNull()
-                .forEach(Address.class, addressValidator -> addressValidator
-                        .nested(Address::getStreet, street -> street.notNull().satisfies(s -> s.length() >= 5, "Street must be at least 5 characters"))
-                        .nested(Address::getCity, city -> city.notNull().satisfies(c -> c.length() >= 2, "City must be at least 2 characters"))
-                );
+                .forEach(Address.class, UserService::validateAddress);
+
+        builder.ruleFor(User::getMainAddress)
+                .notNull()
+                .nested(address -> address, UserService::validateAddress);
 
         ValidationFramework.ValidationResult result = builder.validate();
         return user;
+    }
+
+    private static void validateAddress(ValidationFramework.Validator<Address> addressValidator) {
+        addressValidator
+                .notNull()
+                .nested(Address::getStreet, street -> street
+                        .notNull()
+                        .satisfies(s -> s.length() >= 5, "Street must be at least 5 characters"))
+                .nested(Address::getCity, city -> city
+                        .notNull()
+                        .satisfies(c -> c.length() >= 2, "City must be at least 2 characters"));
     }
 }
