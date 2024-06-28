@@ -26,7 +26,8 @@ public class UserService {
 
         builder.ruleFor(User::getAddresses)
                 .notNull()
-                .forEach(Address.class, UserService::validateAddress);
+                .forEach(Address.class, UserService::validateAddress)
+                .when(u -> u.getAge() <= 20);;
 
         builder.ruleFor(User::getMainAddress)
                 .notNull()
@@ -36,7 +37,7 @@ public class UserService {
         return user;
     }
 
-    private static void validateAddress(ValidationFramework.Validator<Address> addressValidator) {
+    private static void validateAddress(ValidationFramework.Validator<Address, User> addressValidator) {
         addressValidator
                 .notNull()
                 .nested(Address::getStreet, street -> street
