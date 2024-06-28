@@ -26,29 +26,10 @@ public class ValidationFramework {
         }
     }
 
-    public static class Rule<T> {
-        private Function<T, Boolean> validation;
-        private String errorMessage;
-
-        public Rule(Function<T, Boolean> validation, String errorMessage) {
-            this.validation = validation;
-            this.errorMessage = errorMessage;
-        }
-
-        public boolean apply(T value) {
-            return validation.apply(value);
-        }
-
-        public String getErrorMessage() {
-            return errorMessage;
-        }
-    }
-
     public static class Validator<T> {
         private Function<Object, T> getter;
         private String fieldName;
-        private List<Rule<T>> rules = new ArrayList<>();
-        private List<BiConsumer<Object, ValidationResult>> nestedValidations = new ArrayList<>();
+        private List<BiConsumer<T, ValidationResult>> validations = new ArrayList<>();
 
         public Validator(Function<Object, T> getter, String fieldName) {
             this.getter = getter;
@@ -56,32 +37,42 @@ public class ValidationFramework {
         }
 
         public Validator<T> notNull() {
-            rules.add(new Rule<>(value -> value != null, fieldName + " cannot be null"));
+            validations.add((value, result) -> {
+                if (value == null) {
+                    result.addError(fieldName + " cannot be null");
+                }
+            });
             return this;
         }
 
         public Validator<T> matches(String regex) {
-            rules.add(new Rule<>(value -> value != null && Pattern.matches(regex, value.toString()),
-                    fieldName + " does not match pattern " + regex));
+            validations.add((value, result) -> {
+                if (value != null && !Pattern.matches(regex, value.toString())) {
+                    result.addError(fieldName + " does not match pattern " + regex);
+                }
+            });
             return this;
         }
 
         public Validator<T> satisfies(Predicate<T> predicate, String errorMessage) {
-            rules.add(new Rule<>(value -> value == null || predicate.test(value), fieldName + ": " + errorMessage));
+            validations.add((value, result) -> {
+                if (value != null && !predicate.test(value)) {
+                    result.addError(fieldName + ": " + errorMessage);
+                }
+            });
             return this;
         }
 
         public <U> Validator<T> forEach(Class<U> clazz, Consumer<Validator<U>> validator) {
-            nestedValidations.add((obj, result) -> {
-                T value = getter.apply(obj);
+            validations.add((value, result) -> {
                 if (value instanceof List) {
                     List<?> list = (List<?>) value;
                     for (int i = 0; i < list.size(); i++) {
                         Object item = list.get(i);
                         if (clazz.isInstance(item)) {
-                            Validator<U> itemValidator = new Validator<>(o -> clazz.cast(item), fieldName + "[" + i + "]");
+                            Validator<U> itemValidator = new Validator<>(obj -> clazz.cast(item), fieldName + "[" + i + "]");
                             validator.accept(itemValidator);
-                            itemValidator.validate(obj, result);
+                            itemValidator.validate(null, result);
                         } else {
                             result.addError(fieldName + "[" + i + "] is not of type " + clazz.getSimpleName());
                         }
@@ -92,13 +83,12 @@ public class ValidationFramework {
         }
 
         public <U> Validator<T> nested(Function<T, U> getter, Consumer<Validator<U>> validator) {
-            nestedValidations.add((obj, result) -> {
-                T value = this.getter.apply(obj);
+            validations.add((value, result) -> {
                 if (value != null) {
                     U nestedValue = getter.apply(value);
-                    Validator<U> nestedValidator = new Validator<>(o -> nestedValue, fieldName + "." + getter);
+                    Validator<U> nestedValidator = new Validator<>(obj -> nestedValue, fieldName + "." + getter);
                     validator.accept(nestedValidator);
-                    nestedValidator.validate(obj, result);
+                    nestedValidator.validate(null, result);
                 }
             });
             return this;
@@ -106,17 +96,9 @@ public class ValidationFramework {
 
         public void validate(Object object, ValidationResult result) {
             T value = getter.apply(object);
-            for (Rule<T> rule : rules) {
-                if (!rule.apply(value)) {
-                    result.addError(rule.getErrorMessage());
-                }
+            for (BiConsumer<T, ValidationResult> validation : validations) {
+                validation.accept(value, result);
             }
-            for (BiConsumer<Object, ValidationResult> nestedValidation : nestedValidations) {
-                nestedValidation.accept(object, result);
-            }
-        }
-        private void addError(String error) {
-            rules.add(new Rule<>(value -> false, error));
         }
     }
 
