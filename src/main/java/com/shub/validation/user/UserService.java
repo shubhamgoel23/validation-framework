@@ -32,12 +32,14 @@ public class UserService {
                 .notNull()
                 .nested(Address::getStreet, street -> street
                         .notNull()
-                        .satisfies(s -> s.length() >= 5, "Street must be at least 5 characters"))
-                .when((a, u) -> u.getAge() > 20)
+                        .satisfies(s -> s.length() >= 5
+                                , "Street must be at least 5 characters"),
+                        (a, u) -> u.getAge() > 20)
                 .nested(Address::getCity, city -> city
                         .notNull()
-                        .satisfies(c -> c.length() >= 2, "City must be at least 2 characters"))
-                .when((a, u) -> (u.getAge() <= 20 && !ObjectUtils.isEmpty(a.getCity())));
+                        .satisfies(c -> c.length() >= 2
+                                , "City must be at least 2 characters"
+                        ,(a, u) -> (u.getAge() <= 20)));
     }
 
     public User save(User user) {
@@ -45,10 +47,12 @@ public class UserService {
 
         builder.ruleFor(User::getName)
                 .notNull()
-                .satisfies(name -> name.length() >= 2 && name.length() <= 50, "Name must be between 2 and 50 characters")
-                .when((n, u) -> true)
-                .satisfies(name -> name.length() >= 2 && name.length() <= 50, "random test")
-                .when((n, u) -> true);
+                .satisfies(name -> name.length() >= 2 && name.length() <= 50
+                        , "Name must be between 2 and 50 characters"
+                        ,(n, u) -> true)
+                .satisfies(name -> name.length() >= 2 && name.length() <= 50
+                        , "random test"
+                        ,(n, u) -> true);
 
         builder.ruleFor(User::getEmail)
                 .notNull()
@@ -60,14 +64,15 @@ public class UserService {
 
 //        builder.ruleFor(User::getAddresses)
 //                .notNull()
-//                .forEach(Address.class, av->validateAddress(av))
-//                .when((a, u) -> u.getAge() <= 20);
-
+//                .forEach(Address.class
+//                        , av->validateAddress(av)
+//                ,(a, u) -> u.getAge() <= 20);
+//
 //        builder.ruleFor(User::getMainAddress)
 //                .notNull()
 //                .nested(address -> address, UserService::validateAddress)
 //                .crossField((m, u) -> !ObjectUtils.isEmpty(m.getCity()) && !ObjectUtils.isEmpty(u.getAge()), "custom error");
-//
+////
 //        builder.ruleFor(User::getName).compose(nameValidator);
 //        builder.ruleFor(User::getMainAddress).compose(primaryAddressValidator);
 
