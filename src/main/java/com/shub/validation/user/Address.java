@@ -6,4 +6,5 @@ import lombok.Data;
 public class Address {
     private String street;
     private String city;
+    private AddressType type;
 }

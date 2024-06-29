@@ -26,6 +26,30 @@ public class ValidationFramework {
         }
     }
 
+    public static class CompositeValidator<T, R> {
+        private List<Consumer<Validator<T, R>>> rules = new ArrayList<>();
+        private BiPredicate<T, R> defaultCondition = (t, r) -> true;
+
+        public CompositeValidator<T, R> add(Consumer<Validator<T, R>> rule) {
+            rules.add(rule);
+            return this;
+        }
+
+        public CompositeValidator<T, R> withDefaultCondition(BiPredicate<T, R> condition) {
+            this.defaultCondition = condition;
+            return this;
+        }
+
+        public void applyTo(Validator<T, R> validator) {
+            rules.forEach(rule -> rule.accept(validator));
+        }
+
+        public BiPredicate<T, R> getDefaultCondition() {
+            return defaultCondition;
+        }
+    }
+
+
     public static class Validator<T, R> {
         private Function<R, T> getter;
         private String fieldName;
@@ -96,6 +120,14 @@ public class ValidationFramework {
             });
         }
 
+        public Validator<T, R> crossField(BiPredicate<T, R> predicate, String errorMessage) {
+            return addValidation((value, result, root) -> {
+                if (!predicate.test(value, root)) {
+                    result.addError(fieldName + ": " + errorMessage);
+                }
+            });
+        }
+
         public Validator<T, R> when(BiPredicate<T, R> condition) {
             if (!validations.isEmpty()) {
                 ConditionalValidation<T, R> lastValidation = validations.get(validations.size() - 1);
@@ -111,6 +143,21 @@ public class ValidationFramework {
                     validation.validation.accept(value, result, root);
                 }
             }
+        }
+
+        public Validator<T, R> compose(CompositeValidator<T, R> compositeValidator) {
+            compositeValidator.applyTo(this);
+            return this;
+        }
+
+        public Validator<T, R> composeConditionally(CompositeValidator<T, R> compositeValidator, BiPredicate<T, R> condition) {
+            return addValidation((value, result, root) -> {
+                if (condition.test(value, root)) {
+                    Validator<T, R> conditionalValidator = new Validator<>(t -> value, this.fieldName);
+                    compositeValidator.applyTo(conditionalValidator);
+                    conditionalValidator.validate(root, result);
+                }
+            });
         }
 
         private static class ConditionalValidation<T, R> {
