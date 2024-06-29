@@ -45,12 +45,12 @@ public class UserService {
     public User save(User user) {
         ValidationFramework.ValidationBuilder<User> builder = new ValidationFramework.ValidationBuilder<>(user);
 
-        builder.ruleFor("name",User::getName)
+        builder.ruleFor("name",User::getName, (n,u)->u.getAge()>10)
                 .notNull()
-                .satisfies(name -> name.length() >= 2 && name.length() <= 50
-                        , "Name must be between 2 and 50 characters"
+                .satisfies(name -> name.length() >= 2 && name.length() <= 9
+                        , "Name must be between 2 and 9 characters"
                         ,(n, u) -> true)
-                .satisfies(name -> name.length() >= 2 && name.length() <= 50
+                .satisfies(name -> name.length() >= 2 && name.length() <= 9
                         , "random test"
                         ,(n, u) -> true);
 

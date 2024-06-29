@@ -63,72 +63,35 @@ public class ValidationFramework {
         private final Function<R, T> getter;
         private final String fieldPath;
         private final List<ValidationRule<T, R>> rules = new ArrayList<>();
+        private final BiPredicate<T, R> topLevelCondition;
 
-        public Validator(Function<R, T> getter, String fieldPath) {
+        public Validator(Function<R, T> getter, String fieldPath, BiPredicate<T, R> topLevelCondition) {
             this.getter = getter;
             this.fieldPath = fieldPath;
+            this.topLevelCondition = topLevelCondition;
         }
 
-        /**
-         * Validates that the value is not null.
-         *
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> notNull() {
             return notNull((t, r) -> true);
         }
 
-        /**
-         * Validates that the value is not null when the condition is met.
-         *
-         * @param condition The condition under which this validation should be applied
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> notNull(BiPredicate<T, R> condition) {
             return addRule((value, context) -> value != null, "must not be null", condition);
         }
 
-        /**
-         * Validates that the value matches the given regex pattern.
-         *
-         * @param regex The regex pattern to match against
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> matches(String regex) {
             return matches(regex, (t, r) -> true);
         }
 
-        /**
-         * Validates that the value matches the given regex pattern when the condition is met.
-         *
-         * @param regex The regex pattern to match against
-         * @param condition The condition under which this validation should be applied
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> matches(String regex, BiPredicate<T, R> condition) {
             return addRule((value, context) -> value != null && Pattern.matches(regex, value.toString()),
                     "must match pattern: " + regex, condition);
         }
 
-        /**
-         * Validates that the value satisfies the given predicate.
-         *
-         * @param predicate The predicate to test against
-         * @param errorMessage The error message to use if validation fails
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> satisfies(Predicate<T> predicate, String errorMessage) {
             return satisfies(predicate, errorMessage, (t, r) -> true);
         }
 
-        /**
-         * Validates that the value satisfies the given predicate when the condition is met.
-         *
-         * @param predicate The predicate to test against
-         * @param errorMessage The error message to use if validation fails
-         * @param condition The condition under which this validation should be applied
-         * @return The validator instance for method chaining
-         */
         public Validator<T, R> satisfies(Predicate<T> predicate, String errorMessage, BiPredicate<T, R> condition) {
             return addRule((value, context) -> value == null || predicate.test(value), errorMessage, condition);
         }
@@ -196,7 +159,7 @@ public class ValidationFramework {
             Validator<U, R> nestedValidator = new Validator<>(root -> {
                 T value = this.getter.apply(root);
                 return value != null ? nestedGetter.apply(value) : null;
-            }, nestedPath);
+            }, nestedPath, (u, r) -> true);
             validator.accept(nestedValidator);
             return addRule((value, context) -> {
                 if (value != null) {
@@ -226,7 +189,7 @@ public class ValidationFramework {
                         Object item = list.get(i);
                         if (clazz.isInstance(item)) {
                             String indexedPath = listPath + "[" + i + "]";
-                            Validator<U, R> itemValidator = new Validator<>(root -> clazz.cast(item), indexedPath);
+                            Validator<U, R> itemValidator = new Validator<>(root -> clazz.cast(item), indexedPath, (u, r) -> true);
                             validator.accept(itemValidator);
                             itemValidator.validate(context.getRoot(), context.getResult());
                         } else {
@@ -268,8 +231,7 @@ public class ValidationFramework {
          * @return The validator instance for method chaining
          */
         public Validator<T, R> compose(CompositeValidator<T, R> compositeValidator) {
-            compositeValidator.applyTo(this);
-            return this;
+            return composeConditionally(compositeValidator, (t, r) -> true);
         }
 
         /**
@@ -283,15 +245,13 @@ public class ValidationFramework {
             return composeConditionally(compositeValidator, compositeValidator.getDefaultCondition());
         }
 
-        public Validator<T, R> composeConditionally(CompositeValidator<T, R> compositeValidator, BiPredicate<T, R> overrideCondition) {
+        public Validator<T, R> composeConditionally(CompositeValidator<T, R> compositeValidator, BiPredicate<T, R> condition) {
             return addRule((value, context) -> {
-                if (overrideCondition.test(value, context.getRoot())) {
-                    Validator<T, R> conditionalValidator = new Validator<>(t -> value, this.fieldPath);
-                    compositeValidator.applyTo(conditionalValidator);
-                    conditionalValidator.validate(context.getRoot(), context.getResult());
-                }
-                return true; // Always return true to prevent adding a generic error message
-            }, null, (t, r) -> true); // Pass null as errorMessage
+                Validator<T, R> conditionalValidator = new Validator<>(t -> value, this.fieldPath, (t, r) -> true);
+                compositeValidator.applyTo(conditionalValidator);
+                conditionalValidator.validate(context.getRoot(), context.getResult());
+                return context.getResult().isValid();
+            }, null, condition.and(compositeValidator.getDefaultCondition()));
         }
 
         private Validator<T, R> addRule(BiPredicate<T, ValidationContext<R>> rule, String errorMessage, BiPredicate<T, R> condition) {
@@ -302,10 +262,12 @@ public class ValidationFramework {
         public void validate(R root, ValidationResult result) {
             T value = getter.apply(root);
             ValidationContext<R> context = new ValidationContext<>(root, result);
-            for (ValidationRule<T, R> rule : rules) {
-                if (rule.getCondition().test(value, root) && !rule.getRule().test(value, context)) {
-                    if (rule.getErrorMessage() != null) {
-                        result.addError(fieldPath, rule.getErrorMessage());
+            if (topLevelCondition.test(value, root)) {
+                for (ValidationRule<T, R> rule : rules) {
+                    if (rule.getCondition().test(value, root) && !rule.getRule().test(value, context)) {
+                        if (rule.getErrorMessage() != null) {
+                            result.addError(fieldPath, rule.getErrorMessage());
+                        }
                     }
                 }
             }
@@ -402,7 +364,11 @@ public class ValidationFramework {
         }
 
         public <U> Validator<U, T> ruleFor(String fieldName, Function<T, U> getter) {
-            Validator<U, T> validator = new Validator<>(getter, fieldName);
+            return ruleFor(fieldName, getter, (u, t) -> true);
+        }
+
+        public <U> Validator<U, T> ruleFor(String fieldName, Function<T, U> getter, BiPredicate<U, T> condition) {
+            Validator<U, T> validator = new Validator<>(getter, fieldName, condition);
             validators.add(validator);
             return validator;
         }
