@@ -15,18 +15,41 @@ public class ValidationFramework {
      * Represents the result of a validation operation.
      */
     public static class ValidationResult {
-        private List<String> errors = new ArrayList<>();
+        private List<ValidationError> errors = new ArrayList<>();
 
-        public void addError(String error) {
-            errors.add(error);
+        public void addError(String fieldPath, String errorMessage) {
+            errors.add(new ValidationError(fieldPath, errorMessage));
         }
 
         public boolean isValid() {
             return errors.isEmpty();
         }
 
-        public List<String> getErrors() {
+        public List<ValidationError> getErrors() {
             return errors;
+        }
+
+        public static class ValidationError {
+            private final String fieldPath;
+            private final String errorMessage;
+
+            public ValidationError(String fieldPath, String errorMessage) {
+                this.fieldPath = fieldPath;
+                this.errorMessage = errorMessage;
+            }
+
+            public String getFieldPath() {
+                return fieldPath;
+            }
+
+            public String getErrorMessage() {
+                return errorMessage;
+            }
+
+            @Override
+            public String toString() {
+                return fieldPath + ": " + errorMessage;
+            }
         }
     }
 
@@ -38,12 +61,12 @@ public class ValidationFramework {
      */
     public static class Validator<T, R> {
         private final Function<R, T> getter;
-        private final String fieldName;
+        private final String fieldPath;
         private final List<ValidationRule<T, R>> rules = new ArrayList<>();
 
-        public Validator(Function<R, T> getter, String fieldName) {
+        public Validator(Function<R, T> getter, String fieldPath) {
             this.getter = getter;
-            this.fieldName = fieldName;
+            this.fieldPath = fieldPath;
         }
 
         /**
@@ -164,22 +187,23 @@ public class ValidationFramework {
          * @param validator A consumer to configure the nested validator
          * @return The validator instance for method chaining
          */
-        public <U> Validator<T, R> nested(Function<T, U> nestedGetter, Consumer<Validator<U, R>> validator) {
-            return nested(nestedGetter, validator, (t, r) -> true);
+        public <U> Validator<T, R> nested(String fieldName, Function<T, U> nestedGetter, Consumer<Validator<U, R>> validator) {
+            return nested(fieldName, nestedGetter, validator, (t, r) -> true);
         }
 
-        public <U> Validator<T, R> nested(Function<T, U> nestedGetter, Consumer<Validator<U, R>> validator, BiPredicate<T, R> condition) {
+        public <U> Validator<T, R> nested(String fieldName, Function<T, U> nestedGetter, Consumer<Validator<U, R>> validator, BiPredicate<T, R> condition) {
+            String nestedPath = fieldPath.isEmpty() ? fieldName : fieldPath + "." + fieldName;
             Validator<U, R> nestedValidator = new Validator<>(root -> {
                 T value = this.getter.apply(root);
                 return value != null ? nestedGetter.apply(value) : null;
-            }, this.fieldName + "." + nestedGetter);
+            }, nestedPath);
             validator.accept(nestedValidator);
             return addRule((value, context) -> {
                 if (value != null) {
                     nestedValidator.validate(context.getRoot(), context.getResult());
                 }
-                return true; // Always return true to prevent adding a generic error message
-            }, null, condition); // Pass null as errorMessage
+                return true;
+            }, null, condition);
         }
 
         /**
@@ -189,27 +213,29 @@ public class ValidationFramework {
          * @param validator A consumer to configure the validator for each element
          * @return The validator instance for method chaining
          */
-        public <U> Validator<T, R> forEach(Class<U> clazz, Consumer<Validator<U, R>> validator) {
-            return forEach(clazz, validator, (t, r) -> true);
+        public <U> Validator<T, R> forEach(String fieldName, Class<U> clazz, Consumer<Validator<U, R>> validator) {
+            return forEach(fieldName, clazz, validator, (t, r) -> true);
         }
 
-        public <U> Validator<T, R> forEach(Class<U> clazz, Consumer<Validator<U, R>> validator, BiPredicate<T, R> condition) {
+        public <U> Validator<T, R> forEach(String fieldName, Class<U> clazz, Consumer<Validator<U, R>> validator, BiPredicate<T, R> condition) {
+            String listPath = fieldPath.isEmpty() ? fieldName : fieldPath + (fieldName.isEmpty() ? "" : "." + fieldName);
             return addRule((value, context) -> {
                 if (value instanceof List) {
                     List<?> list = (List<?>) value;
                     for (int i = 0; i < list.size(); i++) {
                         Object item = list.get(i);
                         if (clazz.isInstance(item)) {
-                            Validator<U, R> itemValidator = new Validator<>(root -> clazz.cast(item), fieldName + "[" + i + "]");
+                            String indexedPath = listPath + "[" + i + "]";
+                            Validator<U, R> itemValidator = new Validator<>(root -> clazz.cast(item), indexedPath);
                             validator.accept(itemValidator);
                             itemValidator.validate(context.getRoot(), context.getResult());
                         } else {
-                            context.getResult().addError(fieldName + "[" + i + "] is not of type " + clazz.getSimpleName());
+                            context.getResult().addError(listPath + "[" + i + "]", "is not of type " + clazz.getSimpleName());
                         }
                     }
                 }
-                return true; // Always return true to prevent adding a generic error message
-            }, null, condition); // Pass null as errorMessage
+                return true;
+            }, null, condition);
         }
 
         /**
@@ -260,7 +286,7 @@ public class ValidationFramework {
         public Validator<T, R> composeConditionally(CompositeValidator<T, R> compositeValidator, BiPredicate<T, R> overrideCondition) {
             return addRule((value, context) -> {
                 if (overrideCondition.test(value, context.getRoot())) {
-                    Validator<T, R> conditionalValidator = new Validator<>(t -> value, this.fieldName);
+                    Validator<T, R> conditionalValidator = new Validator<>(t -> value, this.fieldPath);
                     compositeValidator.applyTo(conditionalValidator);
                     conditionalValidator.validate(context.getRoot(), context.getResult());
                 }
@@ -278,8 +304,8 @@ public class ValidationFramework {
             ValidationContext<R> context = new ValidationContext<>(root, result);
             for (ValidationRule<T, R> rule : rules) {
                 if (rule.getCondition().test(value, root) && !rule.getRule().test(value, context)) {
-                    if (rule.getErrorMessage() != null) { // Only add error if errorMessage is not null
-                        result.addError(fieldName + " " + rule.getErrorMessage());
+                    if (rule.getErrorMessage() != null) {
+                        result.addError(fieldPath, rule.getErrorMessage());
                     }
                 }
             }
@@ -375,8 +401,8 @@ public class ValidationFramework {
             this.object = object;
         }
 
-        public <U> Validator<U, T> ruleFor(Function<T, U> getter) {
-            Validator<U, T> validator = new Validator<>(getter, getter.toString());
+        public <U> Validator<U, T> ruleFor(String fieldName, Function<T, U> getter) {
+            Validator<U, T> validator = new Validator<>(getter, fieldName);
             validators.add(validator);
             return validator;
         }
