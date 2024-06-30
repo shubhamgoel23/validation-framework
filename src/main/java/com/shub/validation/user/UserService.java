@@ -77,6 +77,7 @@ public class UserService {
 //        builder.ruleFor(User::getMainAddress).compose(primaryAddressValidator);
 
         builder.ruleFor("addresses",User::getAddresses)
+                .addRule((u,v)->true,"",(u,n)->true)
                 .forEach("",Address.class, av ->
                         av
 
