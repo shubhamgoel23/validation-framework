@@ -1,9 +1,13 @@
 package com.shub.validation.user;
 
+import com.shub.validation.core.IValidator;
 import com.shub.validation.engine.ValidationFramework;
+import com.shub.validation.group.BasicValidation;
+import com.shub.validation.group.GroupValidator;
+import com.shub.validation.rules.LazyLoadingValidatorFactory;
+import com.shub.validation.rules.ValidationBuilder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.util.ObjectUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -90,6 +94,25 @@ public class UserService {
         for (ValidationFramework.ValidationResult.ValidationError error : result.getErrors()) {
             System.out.println(error.getFieldPath() + ": " + error.getErrorMessage());
         }
+
+        GroupValidator<User> groupValidator = new GroupValidator<>(BasicValidation.class);
+        ValidationBuilder<User> enhancedBuilder = new ValidationBuilder<>(user);
+        enhancedBuilder.ruleFor("name", User::getName)
+
+                .notEmpty();
+        enhancedBuilder.ruleFor("email", User::getEmail)
+                .notNull()
+                .matches("^[^@]+@[^@]+\\.[^@]+$");
+        enhancedBuilder.ruleFor("addresses",User::getAddresses)
+
+                .forEach("address",Address.class,av -> {
+                    av.nested("city",Address::getCity, IValidator::notEmpty);
+                });
+        enhancedBuilder.ruleForCombination("password", "confirmPassword", User::getName, User::getEmail)
+                .satisfies((password, confirmPassword) -> password.equals(confirmPassword), "Passwords must match");
+        var reee = enhancedBuilder.validate();
+
+        ValidationBuilder<User> builderrr = new ValidationBuilder<>(user, new LazyLoadingValidatorFactory());
         return user;
     }
 }
