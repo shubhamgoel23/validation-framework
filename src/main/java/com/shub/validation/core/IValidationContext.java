@@ -2,5 +2,5 @@ package com.shub.validation.core;
 
 public interface IValidationContext<R> {
     R getRoot();
-    IValidationResult getResult();
+    IValidationResult<R> getResult();
 }
